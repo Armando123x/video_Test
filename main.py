@@ -1,4 +1,4 @@
-import np
+import numpy as np 
 import cv2
 import random
 import datetime
@@ -58,7 +58,7 @@ def frames_from_video_file(video, n_frames, output_size = (224,224), frame_step 
 
   src = video
 
-  video_length = src.get(cv2.CAP_PROP_FRAME_COUNT)
+  video_length = len(src)
 
   need_length = 1 + (n_frames - 1) * frame_step
 
@@ -67,21 +67,18 @@ def frames_from_video_file(video, n_frames, output_size = (224,224), frame_step 
   else:
     max_start = video_length - need_length
     start = random.randint(0, max_start + 1)
-
-  src.set(cv2.CAP_PROP_POS_FRAMES, start)
+ 
   # ret is a boolean indicating whether read was successful, frame is the image itself
-  ret, frame = src.read()
-  result.append(format_frames(frame, output_size))
+ 
 
   for _ in range(n_frames - 1):
-    for _ in range(frame_step):
-      ret, frame = src.read()
-    if ret:
-      frame = format_frames(frame, output_size)
-      result.append(frame)
-    else:
-      result.append(np.zeros_like(result[0]))
-  src.release()
+    frame = video[start]
+    frame = format_frames(frame, output_size)
+    result.append(frame)
+    start += frame_step
+    if start >= video_length:
+        break
+ 
   result = np.array(result)[..., [2, 1, 0]]
 
   return result
@@ -232,7 +229,9 @@ class ResizeVideo(keras.layers.Layer):
 
 
 from tensorflow.keras.layers import Dropout
-
+ 
+HEIGHT = 224
+WIDTH = 224
 input_shape = (None, 10, HEIGHT, WIDTH, 3)
 input = layers.Input(shape=(input_shape[1:]))
 x = input
@@ -260,15 +259,22 @@ x = ResizeVideo(HEIGHT // 16, WIDTH // 16)(x)
 
 # Block 4
 x = add_residual_block(x, 128, (3, 3, 3))
- 
+x = Dropout(0.1)(x)
+x = ResizeVideo(HEIGHT // 32, WIDTH // 32)(x) 
 
 
-x = layers.GlobalAveragePooling3D()(x)
+x = layers.AveragePooling3D((10,1,1))(x)
+x = layers.Reshape((x.shape[1]*x.shape[2]*x.shape[3],-1))(x)
+x = layers.LSTM(128,return_sequences=True)(x)
 x = layers.Flatten()(x)
-x = layers.Dense(64)(x)
+x = layers.Dense(512)(x)
+x = Dropout(0.1)(x)
+x = layers.Dense(256)(x)
+
 x = layers.Dense(1, activation='sigmoid')(x)
 
 model = keras.Model(input, x)
+model.summary()
 
 
 model.load_weights("weights.h5")
@@ -301,4 +307,4 @@ result = frames_from_video_file(frames,n_frames)
 
 predict = model.predict(result)
 
-print("test",predict)
+print("result",predict)
